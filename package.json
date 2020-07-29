@@ -1,12 +1,42 @@
 {
-  "name": "dep-check",
+  "name": "meteor-dep-checker",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "Find mismatched package dependencies within a directory of Meteor package directories",
+  "main": "dist/index.js",
+  "preferGlobal": true,
+  "bin": {
+    "mdp": "dist/index.js"
+  },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "build": "rimraf ./dist && rollup -c",
+    "dev": "rollup -c -w",
+    "prepublish": "npm run build",
+    "publish-release": "npm publish --access public",
+    "publish-beta": "npm publish --access public --tag beta"
   },
   "keywords": [],
   "author": "",
-  "license": "ISC"
+  "license": "ISC",
+  "devDependencies": {
+    "@babel/core": "^7.10.5",
+    "@babel/preset-env": "7.10.4",
+    "@rollup/plugin-babel": "^5.1.0",
+    "@rollup/plugin-commonjs": "^14.0.0",
+    "@rollup/plugin-node-resolve": "^8.4.0",
+    "babel-eslint": "^10.1.0",
+    "core-js": "^3.6.5",
+    "eslint": "^7.4.0",
+    "eslint-config-standard": "14.1.1",
+    "eslint-plugin-import": "^2.22.0",
+    "eslint-plugin-node": "11.1.0",
+    "eslint-plugin-promise": "4.2.1",
+    "eslint-plugin-standard": "^4.0.1",
+    "regenerator-runtime": "^0.13.5",
+    "rimraf": "^3.0.2",
+    "rollup": "^2.21.0",
+    "rollup-plugin-preserve-shebangs": "^0.2.0"
+  },
+  "dependencies": {
+    "chalk": "^4.1.0"
+  }
 }
