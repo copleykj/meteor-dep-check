@@ -42,6 +42,7 @@ const run = async () => {
     const boldMagentaBright = chalk.bold.magentaBright;
     const yellowBright = chalk.yellowBright;
     const greenBright = chalk.greenBright;
+    const boldRedBright = chalk.bold.redBright;
 
     Object.keys(Packages).forEach((name) => {
         const { deps, version } = Packages[name];
@@ -51,7 +52,7 @@ const run = async () => {
 
         const localVersionString = 'local@' + version;
         const publishedVersionString = publishedVersion ? 'published@' + publishedVersion : 'unpublished';
-        const npmVersionString = npmVersion && npmVersion !== version ? chalk.bold.redBright('npm@' + npmVersion) : '';
+        const npmVersionString = npmVersion && npmVersion !== version ? boldRedBright('npm@' + npmVersion) : '';
 
         if (!excludeUnpublished || publishedVersion) {
             console.log(`${color(name.padEnd(27, ' '))}${yellowBright(localVersionString.padEnd(14, ' '))}${greenBright(publishedVersionString.padEnd(18, ' '))}${npmVersionString}`);
@@ -66,8 +67,8 @@ const run = async () => {
                 }
 
                 if (depPackage.version !== depVersion) {
-                    // const packagePath = `file://${Packages[name].path}`;
-                    console.log(` \u2514 ${chalk.redBright.bold(`${depName}@${depPackage.version}`)} - ${chalk.yellowBright(depVersion)}:${chalk.greenBright(depPackage.publishedVersion || depPackage.version)}`);
+                    const depVersionString = `${depName}@${depPackage.version}`;
+                    console.log(` \u2514 ${boldRedBright(depVersionString.padEnd(35, ' '))}${yellowBright(depVersion)}:${greenBright(depPackage.publishedVersion || depPackage.version)}`);
                 }
             });
         }

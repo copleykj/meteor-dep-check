@@ -9816,7 +9816,7 @@ var npmVersions = includeNpm ? getLocalNpmVersions(dirs) : {};
 
 var run$1 = /*#__PURE__*/function () {
   var _ref = _asyncToGenerator( /*#__PURE__*/regeneratorRuntime.mark(function _callee() {
-    var subs, boldBlue, boldMagentaBright, yellowBright, greenBright;
+    var subs, boldBlue, boldMagentaBright, yellowBright, greenBright, boldRedBright;
     return regeneratorRuntime.wrap(function _callee$(_context) {
       while (1) {
         switch (_context.prev = _context.next) {
@@ -9851,6 +9851,7 @@ var run$1 = /*#__PURE__*/function () {
             boldMagentaBright = source.bold.magentaBright;
             yellowBright = source.yellowBright;
             greenBright = source.greenBright;
+            boldRedBright = source.bold.redBright;
             Object.keys(Packages).forEach(function (name) {
               var _Packages$name = Packages[name],
                   deps = _Packages$name.deps,
@@ -9860,7 +9861,7 @@ var run$1 = /*#__PURE__*/function () {
               var npmVersion = npmVersions[name];
               var localVersionString = 'local@' + version;
               var publishedVersionString = publishedVersion ? 'published@' + publishedVersion : 'unpublished';
-              var npmVersionString = npmVersion && npmVersion !== version ? source.bold.redBright('npm@' + npmVersion) : '';
+              var npmVersionString = npmVersion && npmVersion !== version ? boldRedBright('npm@' + npmVersion) : '';
 
               if (!excludeUnpublished || publishedVersion) {
                 console.log("".concat(color(name.padEnd(27, ' '))).concat(yellowBright(localVersionString.padEnd(14, ' '))).concat(greenBright(publishedVersionString.padEnd(18, ' '))).concat(npmVersionString));
@@ -9880,16 +9881,16 @@ var run$1 = /*#__PURE__*/function () {
                   }
 
                   if (depPackage.version !== depVersion) {
-                    // const packagePath = `file://${Packages[name].path}`;
-                    console.log(" \u2514 ".concat(source.redBright.bold("".concat(depName, "@").concat(depPackage.version)), " - ").concat(source.yellowBright(depVersion), ":").concat(source.greenBright(depPackage.publishedVersion || depPackage.version)));
+                    var depVersionString = "".concat(depName, "@").concat(depPackage.version);
+                    console.log(" \u2514 ".concat(boldRedBright(depVersionString.padEnd(35, ' '))).concat(yellowBright(depVersion), ":").concat(greenBright(depPackage.publishedVersion || depPackage.version)));
                   }
                 });
               }
             });
-            _context.next = 19;
+            _context.next = 20;
             return client.disconnect();
 
-          case 19:
+          case 20:
           case "end":
             return _context.stop();
         }
