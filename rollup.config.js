@@ -14,7 +14,7 @@ export default [
     // `file` and `format` for each target)
     {
         input: 'src/index.js',
-        external: ['vm', 'fs', 'path', 'os', 'tty', 'websocket'],
+        external: ['vm', 'fs', 'path', 'os', 'tty', 'websocket', 'yargs'],
         output: [
             { file: pkg.main, format: 'cjs' },
         ],

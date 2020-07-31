@@ -21,6 +21,21 @@ const runPackageDirsInContext = (dirs, contextObj) => {
     });
 };
 
+const getLocalNpmVersions = (dirs) => {
+    return dirs.reduce((acc, dir) => {
+        const path = `${dir}/${fileName}on`;
+        if (existsSync(path)) {
+            const pkjson = JSON.parse(readFileSync(path));
+            let { name, version } = pkjson;
+            if (name && version) {
+                name = name.replace('@', '').replace('/', ':');
+                acc[name] = version;
+            }
+        }
+        return acc;
+    }, {});
+};
+
 const getPackageDepsToFetch = (Packages) => {
     const depsToFetch = new Set();
 
@@ -35,4 +50,4 @@ const getPackageDepsToFetch = (Packages) => {
 
     return Array.from(depsToFetch);
 };
-export { getDirectories, runPackageDirsInContext, getPackageDepsToFetch };
+export { getDirectories, runPackageDirsInContext, getPackageDepsToFetch, getLocalNpmVersions };

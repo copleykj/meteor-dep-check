@@ -9,6 +9,7 @@ var websocket = require('websocket');
 var vm = _interopDefault(require('vm'));
 var fs = require('fs');
 var path$1 = require('path');
+var yargs = require('yargs');
 
 var commonjsGlobal = typeof globalThis !== 'undefined' ? globalThis : typeof window !== 'undefined' ? window : typeof global !== 'undefined' ? global : typeof self !== 'undefined' ? self : {};
 
@@ -2157,6 +2158,66 @@ defineIterator(String, 'String', function (iterated) {
   point = charAt(string, index);
   state.index += point.length;
   return { value: point, done: false };
+});
+
+// `String.prototype.repeat` method implementation
+// https://tc39.github.io/ecma262/#sec-string.prototype.repeat
+var stringRepeat = ''.repeat || function repeat(count) {
+  var str = String(requireObjectCoercible(this));
+  var result = '';
+  var n = toInteger(count);
+  if (n < 0 || n == Infinity) throw RangeError('Wrong number of repetitions');
+  for (;n > 0; (n >>>= 1) && (str += str)) if (n & 1) result += str;
+  return result;
+};
+
+// https://github.com/tc39/proposal-string-pad-start-end
+
+
+
+
+var ceil$1 = Math.ceil;
+
+// `String.prototype.{ padStart, padEnd }` methods implementation
+var createMethod$3 = function (IS_END) {
+  return function ($this, maxLength, fillString) {
+    var S = String(requireObjectCoercible($this));
+    var stringLength = S.length;
+    var fillStr = fillString === undefined ? ' ' : String(fillString);
+    var intMaxLength = toLength(maxLength);
+    var fillLen, stringFiller;
+    if (intMaxLength <= stringLength || fillStr == '') return S;
+    fillLen = intMaxLength - stringLength;
+    stringFiller = stringRepeat.call(fillStr, ceil$1(fillLen / fillStr.length));
+    if (stringFiller.length > fillLen) stringFiller = stringFiller.slice(0, fillLen);
+    return IS_END ? S + stringFiller : stringFiller + S;
+  };
+};
+
+var stringPad = {
+  // `String.prototype.padStart` method
+  // https://tc39.github.io/ecma262/#sec-string.prototype.padstart
+  start: createMethod$3(false),
+  // `String.prototype.padEnd` method
+  // https://tc39.github.io/ecma262/#sec-string.prototype.padend
+  end: createMethod$3(true)
+};
+
+// https://github.com/zloirock/core-js/issues/280
+
+
+// eslint-disable-next-line unicorn/no-unsafe-regex
+var stringPadWebkitBug = /Version\/10\.\d+(\.\d+)?( Mobile\/\w+)? Safari\//.test(engineUserAgent);
+
+var $padEnd = stringPad.end;
+
+
+// `String.prototype.padEnd` method
+// https://tc39.github.io/ecma262/#sec-string.prototype.padend
+_export({ target: 'String', proto: true, forced: stringPadWebkitBug }, {
+  padEnd: function padEnd(maxLength /* , fillString = ' ' */) {
+    return $padEnd(this, maxLength, arguments.length > 1 ? arguments[1] : undefined);
+  }
 });
 
 // TODO: Remove from `core-js@4` since it's moved to entry points
@@ -9135,6 +9196,57 @@ _export({ target: 'Array', stat: true, forced: INCORRECT_ITERATION$1 }, {
   from: arrayFrom
 });
 
+// `Array.prototype.{ reduce, reduceRight }` methods implementation
+var createMethod$4 = function (IS_RIGHT) {
+  return function (that, callbackfn, argumentsLength, memo) {
+    aFunction$1(callbackfn);
+    var O = toObject(that);
+    var self = indexedObject(O);
+    var length = toLength(O.length);
+    var index = IS_RIGHT ? length - 1 : 0;
+    var i = IS_RIGHT ? -1 : 1;
+    if (argumentsLength < 2) while (true) {
+      if (index in self) {
+        memo = self[index];
+        index += i;
+        break;
+      }
+      index += i;
+      if (IS_RIGHT ? index < 0 : length <= index) {
+        throw TypeError('Reduce of empty array with no initial value');
+      }
+    }
+    for (;IS_RIGHT ? index >= 0 : length > index; index += i) if (index in self) {
+      memo = callbackfn(memo, self[index], index, O);
+    }
+    return memo;
+  };
+};
+
+var arrayReduce = {
+  // `Array.prototype.reduce` method
+  // https://tc39.github.io/ecma262/#sec-array.prototype.reduce
+  left: createMethod$4(false),
+  // `Array.prototype.reduceRight` method
+  // https://tc39.github.io/ecma262/#sec-array.prototype.reduceright
+  right: createMethod$4(true)
+};
+
+var $reduce = arrayReduce.left;
+
+
+
+var STRICT_METHOD$1 = arrayMethodIsStrict('reduce');
+var USES_TO_LENGTH$3 = arrayMethodUsesToLength('reduce', { 1: 0 });
+
+// `Array.prototype.reduce` method
+// https://tc39.github.io/ecma262/#sec-array.prototype.reduce
+_export({ target: 'Array', proto: true, forced: !STRICT_METHOD$1 || !USES_TO_LENGTH$3 }, {
+  reduce: function reduce(callbackfn /* , initialValue */) {
+    return $reduce(this, callbackfn, arguments.length, arguments.length > 1 ? arguments[1] : undefined);
+  }
+});
+
 var freezing = !fails(function () {
   return Object.isExtensible(Object.preventExtensions({}));
 });
@@ -9493,6 +9605,132 @@ var es_set = collection('Set', function (init) {
   return function Set() { return init(this, arguments.length ? arguments[0] : undefined); };
 }, collectionStrong);
 
+var max$1 = Math.max;
+var min$3 = Math.min;
+var floor$1 = Math.floor;
+var SUBSTITUTION_SYMBOLS = /\$([$&'`]|\d\d?|<[^>]*>)/g;
+var SUBSTITUTION_SYMBOLS_NO_NAMED = /\$([$&'`]|\d\d?)/g;
+
+var maybeToString = function (it) {
+  return it === undefined ? it : String(it);
+};
+
+// @@replace logic
+fixRegexpWellKnownSymbolLogic('replace', 2, function (REPLACE, nativeReplace, maybeCallNative, reason) {
+  var REGEXP_REPLACE_SUBSTITUTES_UNDEFINED_CAPTURE = reason.REGEXP_REPLACE_SUBSTITUTES_UNDEFINED_CAPTURE;
+  var REPLACE_KEEPS_$0 = reason.REPLACE_KEEPS_$0;
+  var UNSAFE_SUBSTITUTE = REGEXP_REPLACE_SUBSTITUTES_UNDEFINED_CAPTURE ? '$' : '$0';
+
+  return [
+    // `String.prototype.replace` method
+    // https://tc39.github.io/ecma262/#sec-string.prototype.replace
+    function replace(searchValue, replaceValue) {
+      var O = requireObjectCoercible(this);
+      var replacer = searchValue == undefined ? undefined : searchValue[REPLACE];
+      return replacer !== undefined
+        ? replacer.call(searchValue, O, replaceValue)
+        : nativeReplace.call(String(O), searchValue, replaceValue);
+    },
+    // `RegExp.prototype[@@replace]` method
+    // https://tc39.github.io/ecma262/#sec-regexp.prototype-@@replace
+    function (regexp, replaceValue) {
+      if (
+        (!REGEXP_REPLACE_SUBSTITUTES_UNDEFINED_CAPTURE && REPLACE_KEEPS_$0) ||
+        (typeof replaceValue === 'string' && replaceValue.indexOf(UNSAFE_SUBSTITUTE) === -1)
+      ) {
+        var res = maybeCallNative(nativeReplace, regexp, this, replaceValue);
+        if (res.done) return res.value;
+      }
+
+      var rx = anObject(regexp);
+      var S = String(this);
+
+      var functionalReplace = typeof replaceValue === 'function';
+      if (!functionalReplace) replaceValue = String(replaceValue);
+
+      var global = rx.global;
+      if (global) {
+        var fullUnicode = rx.unicode;
+        rx.lastIndex = 0;
+      }
+      var results = [];
+      while (true) {
+        var result = regexpExecAbstract(rx, S);
+        if (result === null) break;
+
+        results.push(result);
+        if (!global) break;
+
+        var matchStr = String(result[0]);
+        if (matchStr === '') rx.lastIndex = advanceStringIndex(S, toLength(rx.lastIndex), fullUnicode);
+      }
+
+      var accumulatedResult = '';
+      var nextSourcePosition = 0;
+      for (var i = 0; i < results.length; i++) {
+        result = results[i];
+
+        var matched = String(result[0]);
+        var position = max$1(min$3(toInteger(result.index), S.length), 0);
+        var captures = [];
+        // NOTE: This is equivalent to
+        //   captures = result.slice(1).map(maybeToString)
+        // but for some reason `nativeSlice.call(result, 1, result.length)` (called in
+        // the slice polyfill when slicing native arrays) "doesn't work" in safari 9 and
+        // causes a crash (https://pastebin.com/N21QzeQA) when trying to debug it.
+        for (var j = 1; j < result.length; j++) captures.push(maybeToString(result[j]));
+        var namedCaptures = result.groups;
+        if (functionalReplace) {
+          var replacerArgs = [matched].concat(captures, position, S);
+          if (namedCaptures !== undefined) replacerArgs.push(namedCaptures);
+          var replacement = String(replaceValue.apply(undefined, replacerArgs));
+        } else {
+          replacement = getSubstitution(matched, S, position, captures, namedCaptures, replaceValue);
+        }
+        if (position >= nextSourcePosition) {
+          accumulatedResult += S.slice(nextSourcePosition, position) + replacement;
+          nextSourcePosition = position + matched.length;
+        }
+      }
+      return accumulatedResult + S.slice(nextSourcePosition);
+    }
+  ];
+
+  // https://tc39.github.io/ecma262/#sec-getsubstitution
+  function getSubstitution(matched, str, position, captures, namedCaptures, replacement) {
+    var tailPos = position + matched.length;
+    var m = captures.length;
+    var symbols = SUBSTITUTION_SYMBOLS_NO_NAMED;
+    if (namedCaptures !== undefined) {
+      namedCaptures = toObject(namedCaptures);
+      symbols = SUBSTITUTION_SYMBOLS;
+    }
+    return nativeReplace.call(replacement, symbols, function (match, ch) {
+      var capture;
+      switch (ch.charAt(0)) {
+        case '$': return '$';
+        case '&': return matched;
+        case '`': return str.slice(0, position);
+        case "'": return str.slice(tailPos);
+        case '<':
+          capture = namedCaptures[ch.slice(1, -1)];
+          break;
+        default: // \d\d?
+          var n = +ch;
+          if (n === 0) return match;
+          if (n > m) {
+            var f = floor$1(n / 10);
+            if (f === 0) return match;
+            if (f <= m) return captures[f - 1] === undefined ? ch.charAt(1) : captures[f - 1] + ch.charAt(1);
+            return match;
+          }
+          capture = captures[n - 1];
+      }
+      return capture === undefined ? '' : capture;
+    });
+  }
+});
+
 var fileName = 'package.js';
 
 var isDirectory = function isDirectory(source) {
@@ -9519,6 +9757,25 @@ var runPackageDirsInContext = function runPackageDirsInContext(dirs, contextObj)
   });
 };
 
+var getLocalNpmVersions = function getLocalNpmVersions(dirs) {
+  return dirs.reduce(function (acc, dir) {
+    var path = "".concat(dir, "/").concat(fileName, "on");
+
+    if (fs.existsSync(path)) {
+      var pkjson = JSON.parse(fs.readFileSync(path));
+      var name = pkjson.name,
+          version = pkjson.version;
+
+      if (name && version) {
+        name = name.replace('@', '').replace('/', ':');
+        acc[name] = version;
+      }
+    }
+
+    return acc;
+  }, {});
+};
+
 var getPackageDepsToFetch = function getPackageDepsToFetch(Packages) {
   var depsToFetch = new Set();
   Object.keys(Packages).forEach(function (name) {
@@ -9535,6 +9792,8 @@ var getPackageDepsToFetch = function getPackageDepsToFetch(Packages) {
   return Array.from(depsToFetch);
 };
 
+var includeNpm = yargs.argv.includeNpm,
+    excludeUnpublished = yargs.argv.excludeUnpublished;
 var context = {
   Packages: Packages,
   currentPackage: currentPackage,
@@ -9553,10 +9812,11 @@ var client = new simpleddp({
   reconnectInterval: 5000
 });
 var publishedPackages = {};
+var npmVersions = includeNpm ? getLocalNpmVersions(dirs) : {};
 
 var run$1 = /*#__PURE__*/function () {
   var _ref = _asyncToGenerator( /*#__PURE__*/regeneratorRuntime.mark(function _callee() {
-    var subs;
+    var subs, boldBlue, boldMagentaBright, yellowBright, greenBright;
     return regeneratorRuntime.wrap(function _callee$(_context) {
       while (1) {
         switch (_context.prev = _context.next) {
@@ -9587,38 +9847,49 @@ var run$1 = /*#__PURE__*/function () {
             console.log(_context.t0);
 
           case 12:
+            boldBlue = source.bold.blue;
+            boldMagentaBright = source.bold.magentaBright;
+            yellowBright = source.yellowBright;
+            greenBright = source.greenBright;
             Object.keys(Packages).forEach(function (name) {
               var _Packages$name = Packages[name],
                   deps = _Packages$name.deps,
                   version = _Packages$name.version;
               var publishedVersion = publishedPackages[name];
-              var color = version === publishedVersion ? source.blue.bold : source.magentaBright.bold;
-              console.log("".concat(color(name), " - ").concat(source.yellowBright(version), ":").concat(source.greenBright(publishedVersion || 'unpublished')));
-              deps.forEach(function (dep) {
-                var _dep$split = dep.split('@'),
-                    _dep$split2 = _slicedToArray(_dep$split, 2),
-                    depName = _dep$split2[0],
-                    depVersion = _dep$split2[1];
+              var color = version === publishedVersion ? boldBlue : boldMagentaBright;
+              var npmVersion = npmVersions[name];
+              var localVersionString = 'local@' + version;
+              var publishedVersionString = publishedVersion ? 'published@' + publishedVersion : 'unpublished';
+              var npmVersionString = npmVersion && npmVersion !== version ? source.bold.redBright('npm@' + npmVersion) : '';
 
-                var depPackage = Packages[depName];
+              if (!excludeUnpublished || publishedVersion) {
+                console.log("".concat(color(name.padEnd(27, ' '))).concat(yellowBright(localVersionString.padEnd(14, ' '))).concat(greenBright(publishedVersionString.padEnd(18, ' '))).concat(npmVersionString));
+                deps.forEach(function (dep) {
+                  var _dep$split = dep.split('@'),
+                      _dep$split2 = _slicedToArray(_dep$split, 2),
+                      depName = _dep$split2[0],
+                      depVersion = _dep$split2[1];
 
-                if (!depPackage) {
-                  var _version = publishedPackages[depName];
-                  depPackage = {
-                    version: _version
-                  };
-                }
+                  var depPackage = Packages[depName];
 
-                if (depPackage.version !== depVersion) {
-                  // const packagePath = `file://${Packages[name].path}`;
-                  console.log(" \u2514 ".concat(source.redBright.bold("".concat(depName, "@").concat(depPackage.version)), " - ").concat(source.yellowBright(depVersion), ":").concat(source.greenBright(depPackage.publishedVersion || depPackage.version)));
-                }
-              });
+                  if (!depPackage) {
+                    var _version = publishedPackages[depName];
+                    depPackage = {
+                      version: _version
+                    };
+                  }
+
+                  if (depPackage.version !== depVersion) {
+                    // const packagePath = `file://${Packages[name].path}`;
+                    console.log(" \u2514 ".concat(source.redBright.bold("".concat(depName, "@").concat(depPackage.version)), " - ").concat(source.yellowBright(depVersion), ":").concat(source.greenBright(depPackage.publishedVersion || depPackage.version)));
+                  }
+                });
+              }
             });
-            _context.next = 15;
+            _context.next = 19;
             return client.disconnect();
 
-          case 15:
+          case 19:
           case "end":
             return _context.stop();
         }
