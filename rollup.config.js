@@ -1,6 +1,7 @@
 import babel from '@rollup/plugin-babel';
 import nodeResolve from '@rollup/plugin-node-resolve';
 import commonjs from '@rollup/plugin-commonjs';
+import json from '@rollup/plugin-json';
 import { preserveShebangs } from 'rollup-plugin-preserve-shebangs';
 import pkg from './package.json';
 
@@ -13,11 +14,12 @@ export default [
     // `file` and `format` for each target)
     {
         input: 'src/index.js',
-        external: ['vm', 'fs', 'path', 'os', 'tty'],
+        external: ['vm', 'fs', 'path', 'os', 'tty', 'websocket'],
         output: [
             { file: pkg.main, format: 'cjs' },
         ],
         plugins: [
+            json(),
             preserveShebangs(),
             commonjs(),
             nodeResolve(),

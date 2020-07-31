@@ -25,7 +25,12 @@ const Package = {
     describe: (description) => {
         currentPackage = description.name;
         description.path = currentPath; // eslint-disable-line
-        Packages[currentPackage] = description;
+
+        if (Packages[currentPackage]) {
+            Packages[currentPackage] = { ...Packages[currentPackage], ...description };
+        } else {
+            Packages[currentPackage] = description;
+        }
     },
     onUse: (callback) => {
         callback(Api);
