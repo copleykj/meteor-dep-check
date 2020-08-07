@@ -9,10 +9,11 @@ const setCurrentPath = (path) => {
 
 const Api = {
     use: (deps = []) => {
+        const cpDeps = Packages[currentPackage].deps;
         if (typeof deps === 'string') {
             deps = [deps];
         }
-        Packages[currentPackage].deps = deps;
+        Packages[currentPackage].deps = cpDeps ? [...deps, ...cpDeps] : deps;
     },
     versionsFrom: () => { },
     imply: () => { },
@@ -25,12 +26,8 @@ const Package = {
     describe: (description) => {
         currentPackage = description.name;
         description.path = currentPath; // eslint-disable-line
-
-        if (Packages[currentPackage]) {
-            Packages[currentPackage] = { ...Packages[currentPackage], ...description };
-        } else {
-            Packages[currentPackage] = description;
-        }
+        const pcp = Packages[currentPackage];
+        Packages[currentPackage] = pcp ? { ...pcp, ...description } : description;
     },
     onUse: (callback) => {
         callback(Api);

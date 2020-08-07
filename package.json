@@ -39,6 +39,7 @@
   },
   "dependencies": {
     "chalk": "^4.1.0",
+    "dependency-graph": "^0.9.0",
     "simpleddp": "^2.2.4",
     "websocket": "^1.0.31",
     "yargs": "^15.4.1"

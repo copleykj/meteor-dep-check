@@ -2696,8 +2696,20 @@ function _slicedToArray(arr, i) {
   return _arrayWithHoles(arr) || _iterableToArrayLimit(arr, i) || _unsupportedIterableToArray(arr, i) || _nonIterableRest();
 }
 
+function _toConsumableArray(arr) {
+  return _arrayWithoutHoles(arr) || _iterableToArray(arr) || _unsupportedIterableToArray(arr) || _nonIterableSpread();
+}
+
+function _arrayWithoutHoles(arr) {
+  if (Array.isArray(arr)) return _arrayLikeToArray(arr);
+}
+
 function _arrayWithHoles(arr) {
   if (Array.isArray(arr)) return arr;
+}
+
+function _iterableToArray(iter) {
+  if (typeof Symbol !== "undefined" && Symbol.iterator in Object(iter)) return Array.from(iter);
 }
 
 function _iterableToArrayLimit(arr, i) {
@@ -2742,6 +2754,10 @@ function _arrayLikeToArray(arr, len) {
   for (var i = 0, arr2 = new Array(len); i < len; i++) arr2[i] = arr[i];
 
   return arr2;
+}
+
+function _nonIterableSpread() {
+  throw new TypeError("Invalid attempt to spread non-iterable instance.\nIn order to be iterable, non-array objects must have a [Symbol.iterator]() method.");
 }
 
 function _nonIterableRest() {
@@ -9100,12 +9116,13 @@ var setCurrentPath = function setCurrentPath(path) {
 var Api = {
   use: function use() {
     var deps = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : [];
+    var cpDeps = Packages[currentPackage].deps;
 
     if (typeof deps === 'string') {
       deps = [deps];
     }
 
-    Packages[currentPackage].deps = deps;
+    Packages[currentPackage].deps = cpDeps ? [].concat(_toConsumableArray(deps), _toConsumableArray(cpDeps)) : deps;
   },
   versionsFrom: function versionsFrom() {},
   imply: function imply() {},
@@ -9118,11 +9135,8 @@ var Package = {
     currentPackage = description.name;
     description.path = currentPath; // eslint-disable-line
 
-    if (Packages[currentPackage]) {
-      Packages[currentPackage] = _objectSpread2(_objectSpread2({}, Packages[currentPackage]), description);
-    } else {
-      Packages[currentPackage] = description;
-    }
+    var pcp = Packages[currentPackage];
+    Packages[currentPackage] = pcp ? _objectSpread2(_objectSpread2({}, pcp), description) : description;
   },
   onUse: function onUse(callback) {
     callback(Api);
@@ -9792,6 +9806,337 @@ var getPackageDepsToFetch = function getPackageDepsToFetch(Packages) {
   return Array.from(depsToFetch);
 };
 
+var dep_graph = createCommonjsModule(function (module, exports) {
+/**
+ * A simple dependency graph
+ */
+
+/**
+ * Helper for creating a Topological Sort using Depth-First-Search on a set of edges.
+ *
+ * Detects cycles and throws an Error if one is detected (unless the "circular"
+ * parameter is "true" in which case it ignores them).
+ *
+ * @param edges The set of edges to DFS through
+ * @param leavesOnly Whether to only return "leaf" nodes (ones who have no edges)
+ * @param result An array in which the results will be populated
+ * @param circular A boolean to allow circular dependencies
+ */
+function createDFS(edges, leavesOnly, result, circular) {
+  var visited = {};
+  return function(start) {
+    if (visited[start]) {
+      return;
+    }
+    var inCurrentPath = {};
+    var currentPath = [];
+    var todo = []; // used as a stack
+    todo.push({ node: start, processed: false });
+    while (todo.length > 0) {
+      var current = todo[todo.length - 1]; // peek at the todo stack
+      var processed = current.processed;
+      var node = current.node;
+      if (!processed) {
+        // Haven't visited edges yet (visiting phase)
+        if (visited[node]) {
+          todo.pop();
+          continue;
+        } else if (inCurrentPath[node]) {
+          // It's not a DAG
+          if (circular) {
+            todo.pop();
+            // If we're tolerating cycles, don't revisit the node
+            continue;
+          }
+          currentPath.push(node);
+          throw new DepGraphCycleError(currentPath);
+        }
+
+        inCurrentPath[node] = true;
+        currentPath.push(node);
+        var nodeEdges = edges[node];
+        // (push edges onto the todo stack in reverse order to be order-compatible with the old DFS implementation)
+        for (var i = nodeEdges.length - 1; i >= 0; i--) {
+          todo.push({ node: nodeEdges[i], processed: false });
+        }
+        current.processed = true;
+      } else {
+        // Have visited edges (stack unrolling phase)
+        todo.pop();
+        currentPath.pop();
+        inCurrentPath[node] = false;
+        visited[node] = true;
+        if (!leavesOnly || edges[node].length === 0) {
+          result.push(node);
+        }
+      }
+    }
+  };
+}
+
+/**
+ * Simple Dependency Graph
+ */
+var DepGraph = (exports.DepGraph = function DepGraph(opts) {
+  this.nodes = {}; // Node -> Node/Data (treated like a Set)
+  this.outgoingEdges = {}; // Node -> [Dependency Node]
+  this.incomingEdges = {}; // Node -> [Dependant Node]
+  this.circular = opts && !!opts.circular; // Allows circular deps
+});
+DepGraph.prototype = {
+  /**
+   * The number of nodes in the graph.
+   */
+  size: function() {
+    return Object.keys(this.nodes).length;
+  },
+  /**
+   * Add a node to the dependency graph. If a node already exists, this method will do nothing.
+   */
+  addNode: function(node, data) {
+    if (!this.hasNode(node)) {
+      // Checking the arguments length allows the user to add a node with undefined data
+      if (arguments.length === 2) {
+        this.nodes[node] = data;
+      } else {
+        this.nodes[node] = node;
+      }
+      this.outgoingEdges[node] = [];
+      this.incomingEdges[node] = [];
+    }
+  },
+  /**
+   * Remove a node from the dependency graph. If a node does not exist, this method will do nothing.
+   */
+  removeNode: function(node) {
+    if (this.hasNode(node)) {
+      delete this.nodes[node];
+      delete this.outgoingEdges[node];
+      delete this.incomingEdges[node];
+      [this.incomingEdges, this.outgoingEdges].forEach(function(edgeList) {
+        Object.keys(edgeList).forEach(function(key) {
+          var idx = edgeList[key].indexOf(node);
+          if (idx >= 0) {
+            edgeList[key].splice(idx, 1);
+          }
+        }, this);
+      });
+    }
+  },
+  /**
+   * Check if a node exists in the graph
+   */
+  hasNode: function(node) {
+    return this.nodes.hasOwnProperty(node);
+  },
+  /**
+   * Get the data associated with a node name
+   */
+  getNodeData: function(node) {
+    if (this.hasNode(node)) {
+      return this.nodes[node];
+    } else {
+      throw new Error("Node does not exist: " + node);
+    }
+  },
+  /**
+   * Set the associated data for a given node name. If the node does not exist, this method will throw an error
+   */
+  setNodeData: function(node, data) {
+    if (this.hasNode(node)) {
+      this.nodes[node] = data;
+    } else {
+      throw new Error("Node does not exist: " + node);
+    }
+  },
+  /**
+   * Add a dependency between two nodes. If either of the nodes does not exist,
+   * an Error will be thrown.
+   */
+  addDependency: function(from, to) {
+    if (!this.hasNode(from)) {
+      throw new Error("Node does not exist: " + from);
+    }
+    if (!this.hasNode(to)) {
+      throw new Error("Node does not exist: " + to);
+    }
+    if (this.outgoingEdges[from].indexOf(to) === -1) {
+      this.outgoingEdges[from].push(to);
+    }
+    if (this.incomingEdges[to].indexOf(from) === -1) {
+      this.incomingEdges[to].push(from);
+    }
+    return true;
+  },
+  /**
+   * Remove a dependency between two nodes.
+   */
+  removeDependency: function(from, to) {
+    var idx;
+    if (this.hasNode(from)) {
+      idx = this.outgoingEdges[from].indexOf(to);
+      if (idx >= 0) {
+        this.outgoingEdges[from].splice(idx, 1);
+      }
+    }
+
+    if (this.hasNode(to)) {
+      idx = this.incomingEdges[to].indexOf(from);
+      if (idx >= 0) {
+        this.incomingEdges[to].splice(idx, 1);
+      }
+    }
+  },
+  /**
+   * Return a clone of the dependency graph. If any custom data is attached
+   * to the nodes, it will only be shallow copied.
+   */
+  clone: function() {
+    var source = this;
+    var result = new DepGraph();
+    var keys = Object.keys(source.nodes);
+    keys.forEach(function(n) {
+      result.nodes[n] = source.nodes[n];
+      result.outgoingEdges[n] = source.outgoingEdges[n].slice(0);
+      result.incomingEdges[n] = source.incomingEdges[n].slice(0);
+    });
+    return result;
+  },
+  /**
+   * Get an array containing the nodes that the specified node depends on (transitively).
+   *
+   * Throws an Error if the graph has a cycle, or the specified node does not exist.
+   *
+   * If `leavesOnly` is true, only nodes that do not depend on any other nodes will be returned
+   * in the array.
+   */
+  dependenciesOf: function(node, leavesOnly) {
+    if (this.hasNode(node)) {
+      var result = [];
+      var DFS = createDFS(
+        this.outgoingEdges,
+        leavesOnly,
+        result,
+        this.circular
+      );
+      DFS(node);
+      var idx = result.indexOf(node);
+      if (idx >= 0) {
+        result.splice(idx, 1);
+      }
+      return result;
+    } else {
+      throw new Error("Node does not exist: " + node);
+    }
+  },
+  /**
+   * get an array containing the nodes that depend on the specified node (transitively).
+   *
+   * Throws an Error if the graph has a cycle, or the specified node does not exist.
+   *
+   * If `leavesOnly` is true, only nodes that do not have any dependants will be returned in the array.
+   */
+  dependantsOf: function(node, leavesOnly) {
+    if (this.hasNode(node)) {
+      var result = [];
+      var DFS = createDFS(
+        this.incomingEdges,
+        leavesOnly,
+        result,
+        this.circular
+      );
+      DFS(node);
+      var idx = result.indexOf(node);
+      if (idx >= 0) {
+        result.splice(idx, 1);
+      }
+      return result;
+    } else {
+      throw new Error("Node does not exist: " + node);
+    }
+  },
+  /**
+   * Construct the overall processing order for the dependency graph.
+   *
+   * Throws an Error if the graph has a cycle.
+   *
+   * If `leavesOnly` is true, only nodes that do not depend on any other nodes will be returned.
+   */
+  overallOrder: function(leavesOnly) {
+    var self = this;
+    var result = [];
+    var keys = Object.keys(this.nodes);
+    if (keys.length === 0) {
+      return result; // Empty graph
+    } else {
+      if (!this.circular) {
+        // Look for cycles - we run the DFS starting at all the nodes in case there
+        // are several disconnected subgraphs inside this dependency graph.
+        var CycleDFS = createDFS(this.outgoingEdges, false, [], this.circular);
+        keys.forEach(function(n) {
+          CycleDFS(n);
+        });
+      }
+
+      var DFS = createDFS(
+        this.outgoingEdges,
+        leavesOnly,
+        result,
+        this.circular
+      );
+      // Find all potential starting points (nodes with nothing depending on them) an
+      // run a DFS starting at these points to get the order
+      keys
+        .filter(function(node) {
+          return self.incomingEdges[node].length === 0;
+        })
+        .forEach(function(n) {
+          DFS(n);
+        });
+
+      // If we're allowing cycles - we need to run the DFS against any remaining
+      // nodes that did not end up in the initial result (as they are part of a
+      // subgraph that does not have a clear starting point)
+      if (this.circular) {
+        keys
+          .filter(function(node) {
+            return result.indexOf(node) === -1;
+          })
+          .forEach(function(n) {
+            DFS(n);
+          });
+      }
+
+      return result;
+    }
+  }
+};
+
+/**
+ * Cycle error, including the path of the cycle.
+ */
+var DepGraphCycleError = (exports.DepGraphCycleError = function(cyclePath) {
+  var message = "Dependency Cycle Found: " + cyclePath.join(" -> ");
+  var instance = new Error(message);
+  instance.cyclePath = cyclePath;
+  Object.setPrototypeOf(instance, Object.getPrototypeOf(this));
+  if (Error.captureStackTrace) {
+    Error.captureStackTrace(instance, DepGraphCycleError);
+  }
+  return instance;
+});
+DepGraphCycleError.prototype = Object.create(Error.prototype, {
+  constructor: {
+    value: Error,
+    enumerable: false,
+    writable: true,
+    configurable: true
+  }
+});
+Object.setPrototypeOf(DepGraphCycleError, Error);
+});
+
+var graph = new dep_graph.DepGraph();
 var includeNpm = yargs.argv.includeNpm,
     excludeUnpublished = yargs.argv.excludeUnpublished;
 var context = {
@@ -9814,93 +10159,110 @@ var client = new simpleddp({
 var publishedPackages = {};
 var npmVersions = includeNpm ? getLocalNpmVersions(dirs) : {};
 
-var run$1 = /*#__PURE__*/function () {
-  var _ref = _asyncToGenerator( /*#__PURE__*/regeneratorRuntime.mark(function _callee() {
-    var subs, boldBlue, boldMagentaBright, yellowBright, greenBright, boldRedBright;
-    return regeneratorRuntime.wrap(function _callee$(_context) {
-      while (1) {
-        switch (_context.prev = _context.next) {
-          case 0:
-            _context.prev = 0;
-            _context.next = 3;
-            return client.connect();
+_asyncToGenerator( /*#__PURE__*/regeneratorRuntime.mark(function _callee() {
+  var subs, boldBlue, boldMagentaBright, yellowBright, greenBright, boldRedBright, graphDependencies;
+  return regeneratorRuntime.wrap(function _callee$(_context) {
+    while (1) {
+      switch (_context.prev = _context.next) {
+        case 0:
+          _context.prev = 0;
+          _context.next = 3;
+          return client.connect();
 
-          case 3:
-            subs = depsToFetch.map(function (user) {
-              return client.subscribe('user/packages', user, 20).ready();
-            });
-            _context.next = 6;
-            return Promise.all(subs);
+        case 3:
+          subs = depsToFetch.map(function (user) {
+            return client.subscribe('user/packages', user, 20).ready();
+          });
+          _context.next = 6;
+          return Promise.all(subs);
 
-          case 6:
-            client.collection('packages').fetch().forEach(function (_ref2) {
-              var name = _ref2.name,
-                  version = _ref2.latestVersion.version;
-              publishedPackages[name] = version;
-            });
-            _context.next = 12;
-            break;
+        case 6:
+          client.collection('packages').fetch().forEach(function (_ref2) {
+            var name = _ref2.name,
+                version = _ref2.latestVersion.version;
+            publishedPackages[name] = version;
+          });
+          _context.next = 12;
+          break;
 
-          case 9:
-            _context.prev = 9;
-            _context.t0 = _context["catch"](0);
-            console.log(_context.t0);
+        case 9:
+          _context.prev = 9;
+          _context.t0 = _context["catch"](0);
+          console.log(_context.t0);
 
-          case 12:
-            boldBlue = source.bold.blue;
-            boldMagentaBright = source.bold.magentaBright;
-            yellowBright = source.yellowBright;
-            greenBright = source.greenBright;
-            boldRedBright = source.bold.redBright;
-            Object.keys(Packages).forEach(function (name) {
-              var _Packages$name = Packages[name],
-                  deps = _Packages$name.deps,
-                  version = _Packages$name.version;
-              var publishedVersion = publishedPackages[name];
-              var color = version === publishedVersion ? boldBlue : boldMagentaBright;
-              var npmVersion = npmVersions[name];
-              var localVersionString = 'local@' + version;
-              var publishedVersionString = publishedVersion ? 'published@' + publishedVersion : 'unpublished';
-              var npmVersionString = npmVersion && npmVersion !== version ? boldRedBright('npm@' + npmVersion) : '';
+        case 12:
+          boldBlue = source.bold.blue;
+          boldMagentaBright = source.bold.magentaBright;
+          yellowBright = source.yellowBright;
+          greenBright = source.greenBright;
+          boldRedBright = source.bold.redBright;
+          graphDependencies = [];
+          Object.keys(Packages).forEach(function (name) {
+            var _Packages$name = Packages[name],
+                deps = _Packages$name.deps,
+                version = _Packages$name.version;
+            var publishedVersion = publishedPackages[name];
+            var color = version === publishedVersion ? boldBlue : boldMagentaBright;
+            var npmVersion = npmVersions[name];
+            var localVersionString = 'local@' + version;
+            var publishedVersionString = publishedVersion ? 'published@' + publishedVersion : 'unpublished';
+            var npmVersionString = npmVersion && npmVersion !== version ? boldRedBright('npm@' + npmVersion) : '';
 
-              if (!excludeUnpublished || publishedVersion) {
-                console.log("".concat(color(name.padEnd(27, ' '))).concat(yellowBright(localVersionString.padEnd(14, ' '))).concat(greenBright(publishedVersionString.padEnd(18, ' '))).concat(npmVersionString));
-                deps.forEach(function (dep) {
-                  var _dep$split = dep.split('@'),
-                      _dep$split2 = _slicedToArray(_dep$split, 2),
-                      depName = _dep$split2[0],
-                      depVersion = _dep$split2[1];
+            if (!excludeUnpublished || publishedVersion) {
+              if (version !== publishedVersion) {
+                graph.addNode(name);
+              }
 
-                  var depPackage = Packages[depName];
+              console.log("".concat(color(name.padEnd(27, ' '))).concat(yellowBright(localVersionString.padEnd(14, ' '))).concat(greenBright(publishedVersionString.padEnd(18, ' '))).concat(npmVersionString));
+              deps.forEach(function (dep) {
+                var _dep$split = dep.split('@'),
+                    _dep$split2 = _slicedToArray(_dep$split, 2),
+                    depName = _dep$split2[0],
+                    depVersion = _dep$split2[1];
 
-                  if (!depPackage) {
-                    var _version = publishedPackages[depName];
-                    depPackage = {
-                      version: _version
-                    };
-                  }
+                var depPackage = Packages[depName];
+                graphDependencies.push([name, dep.split('@')[0]]);
 
-                  if (depPackage.version !== depVersion) {
-                    var depVersionString = "".concat(depName, "@").concat(depPackage.version);
-                    console.log(" \u2514 ".concat(boldRedBright(depVersionString.padEnd(35, ' '))).concat(yellowBright(depVersion), ":").concat(greenBright(depPackage.publishedVersion || depPackage.version)));
-                  }
-                });
+                if (!depPackage) {
+                  var _version = publishedPackages[depName];
+                  depPackage = {
+                    version: _version
+                  };
+                }
+
+                if (depPackage.version !== depVersion) {
+                  var depVersionString = "".concat(depName, "@").concat(depPackage.version);
+                  console.log(" \u2514 ".concat(boldRedBright(depVersionString.padEnd(35, ' '))).concat(yellowBright(depVersion), ":").concat(greenBright(depPackage.publishedVersion || depPackage.version)));
+                }
+              });
+            }
+          });
+
+          if (graphDependencies.lenght > 0) {
+            graphDependencies.forEach(function (_ref3) {
+              var _ref4 = _slicedToArray(_ref3, 2),
+                  name = _ref4[0],
+                  dep = _ref4[1];
+
+              if (graph.hasNode(name) && graph.hasNode(dep)) {
+                graph.addDependency(name, dep);
               }
             });
-            _context.next = 20;
-            return client.disconnect();
+            console.log('\nPublish Order\n________________\n');
+            graph.overallOrder().forEach(function (name, index) {
+              return console.log("".concat((index + ':').padEnd(4, ' '), " ").concat(name));
+            });
+          }
 
-          case 20:
-          case "end":
-            return _context.stop();
-        }
+          _context.next = 22;
+          return client.disconnect();
+
+        case 22:
+        case "end":
+          return _context.stop();
       }
-    }, _callee, null, [[0, 9]]);
-  }));
-
-  return function run() {
-    return _ref.apply(this, arguments);
-  };
-}();
-
-run$1();
+    }
+  }, _callee, null, [[0, 9]]);
+}))()["catch"](function (e) {
+  return console.log(e) && process.exit(1);
+});

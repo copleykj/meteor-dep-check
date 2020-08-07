@@ -6,6 +6,9 @@ import DDP from 'simpleddp';
 import { Api, Package, Npm, Packages, currentPackage, setCurrentPath, currentPath } from './meteor-package-api';
 import { getDirectories, runPackageDirsInContext, getPackageDepsToFetch, getLocalNpmVersions } from './utils';
 import { argv } from 'yargs';
+import { DepGraph } from 'dependency-graph';
+
+const graph = new DepGraph();
 
 const { includeNpm, excludeUnpublished } = argv;
 
@@ -24,7 +27,7 @@ const client = new DDP({
 const publishedPackages = {};
 const npmVersions = includeNpm ? getLocalNpmVersions(dirs) : {};
 
-const run = async () => {
+(async () => {
     try {
         await client.connect();
 
@@ -44,6 +47,8 @@ const run = async () => {
     const greenBright = chalk.greenBright;
     const boldRedBright = chalk.bold.redBright;
 
+    const graphDependencies = [];
+
     Object.keys(Packages).forEach((name) => {
         const { deps, version } = Packages[name];
         const publishedVersion = publishedPackages[name];
@@ -55,11 +60,16 @@ const run = async () => {
         const npmVersionString = npmVersion && npmVersion !== version ? boldRedBright('npm@' + npmVersion) : '';
 
         if (!excludeUnpublished || publishedVersion) {
+            if (version !== publishedVersion) {
+                graph.addNode(name);
+            }
             console.log(`${color(name.padEnd(27, ' '))}${yellowBright(localVersionString.padEnd(14, ' '))}${greenBright(publishedVersionString.padEnd(18, ' '))}${npmVersionString}`);
 
             deps.forEach((dep) => {
                 const [depName, depVersion] = dep.split('@');
                 let depPackage = Packages[depName];
+
+                graphDependencies.push([name, dep.split('@')[0]]);
 
                 if (!depPackage) {
                     const version = publishedPackages[depName];
@@ -73,6 +83,15 @@ const run = async () => {
             });
         }
     });
+    if (graphDependencies.lenght > 0) {
+        graphDependencies.forEach(([name, dep]) => {
+            if (graph.hasNode(name) && graph.hasNode(dep)) {
+                graph.addDependency(name, dep);
+            }
+        });
+        console.log('\nPublish Order\n________________\n');
+        graph.overallOrder().forEach((name, index) => console.log(`${(index + ':').padEnd(4, ' ')} ${name}`));
+    }
+
     await client.disconnect();
-};
-run();
+})().catch(e => console.log(e) && process.exit(1));
